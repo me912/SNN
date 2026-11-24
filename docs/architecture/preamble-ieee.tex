@@ -1,0 +1,105 @@
+%% =========================================================================
+%% preamble-ieee.tex -- layout of the architecture report.
+%%
+%% The report imitates the IEEE journal papers it builds on (FireFly TVLSI'23,
+%% FireFly v2 TCAD'24, FireFly-S TCAS-I'25): IEEEtran in journal mode,
+%% two columns, Times text and Times math (newtx), captions above tables and
+%% below figures, sections numbered with Roman numerals.
+%%
+%% Engine: pdfLaTeX (newtx is a Type1 Times clone). Do not switch this
+%% document to XeLaTeX: the shared docs/source/preamble.tex stays XeLaTeX for
+%% the IP design document, and the two preambles are deliberately separate.
+%% =========================================================================
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+%% Times text and Times math, as in the FireFly papers. mathptmx is used
+%% instead of newtx because the TinyTeX repository on this machine ships the
+%% former and not centernot.sty, which newtxmath requires.
+\usepackage{mathptmx}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{url}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage[hidelinks]{hyperref}
+
+\renewcommand{\algorithmicrequire}{\textbf{Input:}}
+\renewcommand{\algorithmicensure}{\textbf{Output:}}
+
+%% IEEEtran owns the caption layout; do not load the caption package.
+\setlength{\parindent}{1em}
+\setlength{\emergencystretch}{2em}
+%% Tight float separation: the wide pipeline figure and Algorithm 1 share one
+%% page, and the default 12pt separations push the algorithm onto a new page.
+\setlength{\textfloatsep}{6pt plus 2pt minus 2pt}
+\setlength{\intextsep}{6pt plus 2pt minus 2pt}
+%% A float left over at the end of the document lands on a float page, which
+%% LaTeX centres vertically by default. Put it at the top instead.
+\makeatletter
+\setlength{\@fptop}{0pt}
+\setlength{\@fpsep}{8pt plus 2pt}
+\makeatother
+
+%% ---- code listings --------------------------------------------------------
+\lstdefinestyle{ieee}{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  frame=single,
+  framerule=0.3pt,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  numbersep=5pt,
+  tabsize=2,
+  showstringspaces=false,
+  captionpos=b,
+  keywordstyle=\bfseries,
+  commentstyle=\itshape,
+}
+\lstset{style=ieee}
+
+%% ---- figure macros --------------------------------------------------------
+%% Same contract as docs/source/preamble.tex: the text is written before the
+%% artwork, the document still compiles, and the caption states the message.
+\newcommand{\figplaceholder}[3]{%
+  \begin{figure}[!ht]\centering
+    \IfFileExists{#1}%
+      {\includegraphics[width=\columnwidth,keepaspectratio]{#1}}%
+      {\fbox{\parbox[c][3.4cm][c]{0.86\columnwidth}{\centering\itshape figure
+        pending --- the caption below states what the drawing must show}}}%
+    \caption{#2}\label{#3}%
+  \end{figure}}
+
+%% Wide block diagram spanning both columns.
+\newcommand{\figplaceholderwide}[3]{%
+  \begin{figure*}[t]\centering
+    \IfFileExists{#1}%
+      {\includegraphics[width=\textwidth,keepaspectratio]{#1}}%
+      {\fbox{\parbox[c][6.5cm][c]{0.9\textwidth}{\centering\itshape figure
+        pending --- the caption below states what the drawing must show}}}%
+    \caption{#2}\label{#3}%
+  \end{figure*}}
+
+%% ---- notation -------------------------------------------------------------
+%% Channel counts are written C_in / C_out everywhere, never C_i / C_o.
+\newcommand{\Cin}{C_{\mathrm{in}}}
+\newcommand{\Cout}{C_{\mathrm{out}}}
+\newcommand{\cin}{c_{\mathrm{in}}}
+\newcommand{\cout}{c_{\mathrm{out}}}
+
+%% ---- small helpers --------------------------------------------------------
+\newcommand{\reg}[1]{\texttt{#1}}
+\newcommand{\sig}[1]{\texttt{#1}}
+\newcommand{\module}[1]{\texttt{#1}}

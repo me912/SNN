@@ -1,0 +1,323 @@
+%% =========================================================================
+%% 01-fundamentals.tex -- Section 1.
+%%
+%% Scope: the section heading, its opening paragraph, 1.1 Spiking Neuron
+%% Model and 1.2 Spiking Convolution (three-dimensional, with Algorithm 1).
+%%
+%% The text states the model only. It carries no implementation numbers
+%% (precision, widths, clock rates) and no hardware argument (throughput,
+%% cost, accuracy trade-offs); those belong to the sections that describe
+%% the IP.
+%%
+%% Notation: channel counts are \Cin / \Cout, channel indices \cin / \cout.
+%% Depth is D with subscripts i/o; dilation is \Delta so that it does not
+%% collide with the depth axis.
+%%
+%% Build through main.tex (IEEEtran, two columns):
+%%   latexmk -pdf -interaction=nonstopmode main.tex
+%% =========================================================================
+
+\section{SNN Computation Fundamentals}
+\label{sec:1-fund}
+
+A spiking neural network (SNN) carries information in binary spikes emitted at
+discrete time steps, rather than in real-valued activations propagated in a
+single pass. Each neuron integrates the weighted spikes that reach it into a
+membrane potential, lets that potential decay according to the leakage of the
+cell, and emits a spike of its own whenever the potential crosses a threshold,
+after which the potential is reset. A spiking convolutional neural network
+(SCNN), the form used in this report, arranges such neurons as a convolutional
+layer: the fan-in of a neuron is then a sliding window over an input spike
+volume, and the layer repeats a weighted sum over time steps, input channels and
+kernel positions. The rest of this section states these definitions precisely
+--- the neuron dynamics, the variables of a layer, and the order in which they
+are evaluated.
+
+\subsection{Spiking Neuron Model}
+\label{sec:1-neuron}
+
+The neuron is the only stateful element of the network, which means that
+everything the network must remember between two time steps is the set of
+membrane potentials; currents and spikes are derived at each step from that
+state and from the input. At step $t$ it receives a current from its presynaptic
+neighbours, updates its membrane potential, and decides whether to emit a spike;
+the spike is binary and is the only signal the neuron sends. The current of that
+step is the weighted sum of the spikes arriving at it, plus a bias,
+\begin{equation}
+I_i[t] = \sum_{j} w_{ij}\,s_j[t] + b_i ,
+\label{eq:1-current}
+\end{equation}
+where $s_j[t]\in\{0,1\}$ is the spike of presynaptic neuron $j$ and $w_{ij}$ the
+synapse that connects it to neuron $i$.
+
+In continuous form the membrane obeys
+\begin{equation}
+\tau_m \frac{dv_i}{dt} = -v_i + R\,I_i(t),
+\label{eq:1-ode}
+\end{equation}
+where $\tau_m$ is the membrane time constant, which sets how fast the potential
+decays, and $R$ is the membrane resistance, which converts the input current
+into a change of potential. A
+digital simulation evaluates this dynamics once per step and carries the
+potential of the previous step forward with a decay factor,
+\begin{equation}
+v_i[t] = \left(1-\frac{1}{\tau_m}\right)u_i[t] + I_i[t] .
+\label{eq:1-membrane}
+\end{equation}
+Equation~\eqref{eq:1-membrane} is an accumulator with forgetting: the potential
+left by the previous step is kept, reduced by a fraction $1/\tau_m$, and the
+current of the present step is added. A small $\tau_m$ makes the neuron forget
+quickly, so only recent input counts; a large $\tau_m$ lets earlier input weigh
+for longer. When $\tau_m$ is infinite the decay disappears and the neuron simply
+sums its input over time, which is the integrate-and-fire (IF) model.
+
+The output of the step is a comparison, and the potential is rewritten at the
+same time:
+\begin{equation}
+s_i[t+1] =
+\begin{cases}
+1, & v_i[t] \geq V_{th}, \\
+0, & v_i[t] < V_{th},
+\end{cases}
+\label{eq:1-spike}
+\end{equation}
+\begin{equation}
+u_i[t+1] = v_i[t] - s_i[t+1]\,V_{th} ,
+\label{eq:1-reset}
+\end{equation}
+where $V_{th}$ is the firing threshold. What the neuron sends is this comparison
+and nothing else: its activity is described by when and how often it fires, not
+by the height of the potential. 
+
+Table~\ref{tab:1-neurons} sets the two models side by side. They share the reset
+rule of \eqref{eq:1-reset} and differ in one place only, the decay term of
+\eqref{eq:1-membrane}: the IF neuron integrates without loss, the leaky
+integrate-and-fire (LIF) neuron lets the potential relax between inputs.
+
+\begin{table}[!ht]
+\centering
+\caption{Spiking neuron models. Both subtract the threshold after a spike and
+differ only in the decay of the membrane.}
+\label{tab:1-neurons}
+\footnotesize
+\begin{tabularx}{\columnwidth}{|p{1.0cm}|X|p{2.3cm}|}
+\hline
+\textbf{Model} & \textbf{Membrane update} & \textbf{After a spike} \\
+\hline
+IF & $v_i[t]=u_i[t]+I_i[t]$ & $v_i[t]-V_{th}$ \\
+\hline
+LIF & $v_i[t]=\left(1-\frac{1}{\tau_m}\right)u_i[t]+I_i[t]$ & $v_i[t]-V_{th}$ \\
+\hline
+\end{tabularx}
+\end{table}
+
+A variant resets the potential to rest instead, $u_i[t+1]=0$. Subtracting
+$V_{th}$ leaves a higher potential for the next step, so the neuron sits closer
+to the threshold and fires more readily than after a reset to rest.
+
+Two properties of this model are used in what follows. The state of a layer at
+step $t$ is fully described by the membrane potentials of its neurons, because
+the spikes of that step are a function of that state and of the input. And the
+output of a layer is defined only once its $T$ steps have been evaluated in
+order, since each step consumes the state left by the previous one.
+
+\subsection{Spiking Convolution}
+\label{sec:1-conv}
+
+\figplaceholderwide{../../figures/3DCNN-Architecture.pdf}{A three-dimensional
+SCNN pipeline over $T=8$ time steps, drawn left to right on the lower row and
+right to left on the upper one. A layer holds one spike volume of size
+$C\times D\times H\times W$ per time step; the input here is
+$1\times3\times24\times24$. Each $3$-D convolutional layer applies a
+$7\times7\times7$ kernel at unit stride with same padding, which preserves $D$,
+$H$ and $W$ and changes only the channel count, from $1$ to $32$, $64$ and
+$128$; a $2\times2$ pooling then halves the map, and global average pooling with
+a fully connected layer yields $8$ outputs per time step. The weights are shared
+by all $T$ steps, so the parameter count does not grow with $T$.}{fig:1-pipeline}
+
+A layer of a spiking convolutional neural network places its neurons on a
+three-dimensional lattice, one channel of neurons per lattice position, and
+connects each neuron to a small neighbourhood of the previous layer rather than
+to all of it. The spikes produced by such a layer are a function of the time
+step, the input channel and the position in the volume,
+$s(t,c,d,h,w)\in\{0,1\}$, and this report describes them as $T$ binary volumes
+of size $C\times D\times H\times W$, one per time step. A volume is the
+description a convolution asks for, since a convolution is a statement about
+where a spike sits relative to its neighbours.
+
+With the volumes in hand, the input current of the neuron at output channel
+$\cout$ and position $(d,h,w)$ is the weighted sum of the spikes inside its
+window,
+\begin{equation}
+\begin{split}
+i_{\cout}(d,h,w,t) &= \sum_{\cin}\sum_{\mathbf{k}\in\mathcal{K}}
+w_{\cout,\cin,\mathbf{k}}\\
+&\quad\times s(t,\cin,\; dS_d-P_d+k_d\Delta_d,\\
+&\hspace{2.8em} hS_h-P_h+k_h\Delta_h,\; wS_w-P_w+k_w\Delta_w),
+\end{split}
+\label{eq:1-conv}
+\end{equation}
+where $\mathcal{K}=\{1,\dots,K_d\}\times\{1,\dots,K_h\}\times\{1,\dots,K_w\}$
+is the set of kernel positions and $\mathbf{k}=(k_d,k_h,k_w)$ is one of them;
+$S_d,S_h,S_w$ are the strides, $P_d,P_h,P_w$ the paddings and
+$\Delta_d,\Delta_h,\Delta_w$ the dilations of the window; and a position that
+falls outside the input volume contributes nothing.
+Equation~\eqref{eq:1-conv} is the same three-dimensional convolution as in a
+non-spiking network; what singles out the spiking case is that the operand $s$
+is binary, so every term is either the weight itself or zero, and the sum is a
+weighted count of the spikes that fall inside the window.
+
+The window visits every output position of the volume, every input channel and
+every time step, which fixes the extent of the output volume along each
+geometric axis,
+\begin{equation}
+D_o = \left\lfloor \frac{D_i + 2P_d - \Delta_d(K_d-1) - 1}{S_d} \right\rfloor + 1 ,
+\label{eq:1-dout}
+\end{equation}
+and likewise for $H_o$ and $W_o$ with the parameters of the other two axes.
+A two-dimensional convolution is the case $D_i=K_d=1$, where the depth axis
+holds a single plane and the kernel a single tap along it.
+Figure~\ref{fig:1-pipeline} shows one such layer inside a network: every layer
+holds $T$ volumes of $C\times D\times H\times W$ spikes, the window of
+\eqref{eq:1-conv} spans $K_d\times K_h\times K_w$ positions inside each of them,
+and the same weights are applied at every time step.
+
+Two properties follow from the weight sharing. The number of parameters of a
+layer is $\Cout \Cin K_d K_h K_w$ --- one weight for each combination of output
+channel, input channel and kernel position --- independent of the size of the
+volume and of the number of time steps, so a layer costs the same to store
+whether it runs for $T=4$ or $T=64$ steps. And a spike affects only the
+$K_d \times K_h \times K_w$ positions of the output volume that contain it in
+their window, and only at the time step at which it occurs, so the layer is
+local in both space and time.
+
+In total, one pass over a layer performs
+\begin{equation}
+N_{\mathrm{syn}} = T \cdot \Cout D_o H_o W_o \cdot \Cin K_d K_h K_w
+\label{eq:1-count}
+\end{equation}
+synaptic operations, each of which adds a weight or adds nothing. The count
+grows linearly with the number of time steps, whereas the parameter count does
+not.
+
+Algorithm~\ref{alg:1-layer} writes \eqref{eq:1-conv} out as a loop nest. The
+volumes $S$ have size $T\times\Cin\times D_i\times H_i\times W_i$, the weights
+are indexed by output channel, input channel and kernel position, and $U$ holds
+the membrane potential of every output neuron; no step overlaps with another.
+
+The order of the loops is a choice. Any permutation that keeps the temporal loop
+outside the others returns the same output, because the only state carried from
+one step to the next is the membrane potential, and the spikes of step $t$ are
+produced after the whole fan-in of step $t$ has been summed. The order above is
+kept as the reference: it states what a layer computes with the fewest
+assumptions, and every arrangement discussed later is a reordering of these same
+loop bodies.
+
+\begin{algorithm}[!htb]
+\caption{One SCNN layer, evaluated sequentially.}
+\label{alg:1-layer}
+\scriptsize
+\algrenewcommand\algorithmicindent{1.1em}
+\begin{algorithmic}[1]
+\Require $S(T,\Cin,D_i,H_i,W_i)$, $W(\Cout,\Cin,K_d,K_h,K_w)$
+\Statex \hspace{2.4em}$b(\Cout)$, $V_{th}$, $U(\Cout,D_o,H_o,W_o)$
+\Ensure $O(T,\Cout,D_o,H_o,W_o)$ and the updated $U$
+\For{$t \gets 0$ \textbf{to} $T-1$}
+  \For{each $(\cout,d,h,w)$ of the output volume}
+    \State $i \gets b[\cout]$
+    \For{$\cin \gets 1$ \textbf{to} $\Cin$}
+      \For{$(k_d,k_h,k_w)\in\mathcal{K}$}
+        \State $d' \gets dS_d-P_d+k_d\Delta_d$
+        \State $h' \gets hS_h-P_h+k_h\Delta_h$;\quad $w' \gets wS_w-P_w+k_w\Delta_w$
+        \If{$(d',h',w')$ lies inside the input volume}
+          \State $i \gets i + W[\cout,\cin,k_d,k_h,k_w]\,S[t,\cin,d',h',w']$
+        \EndIf
+      \EndFor
+    \EndFor
+    \State $v \gets (1-1/\tau_m)\,U[\cout,d,h,w] + i$
+    \If{$v \ge V_{th}$}
+      \State $O[t,\cout,d,h,w] \gets 1$;\quad $U[\cout,d,h,w] \gets v-V_{th}$
+    \Else
+      \State $O[t,\cout,d,h,w] \gets 0$;\quad $U[\cout,d,h,w] \gets v$
+    \EndIf
+  \EndFor
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{What the Sequential Model Costs}
+\label{sec:1-cost}
+
+Algorithm~\ref{alg:1-layer} is a definition of what a layer computes, and it is
+also a schedule for computing it, and the schedule has a price. Three quantities
+describe that price, and they are not interchangeable: the arithmetic a network
+performs, the state it has to keep while performing it, and the length of the
+chain of dependencies into which the arithmetic is arranged.
+
+The arithmetic is the sum of \eqref{eq:1-count} over the layers,
+\begin{equation}
+W = \sum_{\ell=1}^{N_{\mathrm{lay}}} N_{\mathrm{syn}}^{(\ell)} ,
+\label{eq:1-work}
+\end{equation}
+where the superscript indexes the layer. This is a bound and not a count,
+because a term of \eqref{eq:1-conv} contributes the weight only when the spike is
+one: what a step actually adds is proportional to the number of spikes that enter
+it, and each of those spikes costs one weight addition for every output channel
+and kernel position it can reach,
+\begin{equation}
+\tilde{W}(t) = \Cout K_d K_h K_w \, A(t) ,
+\label{eq:1-workt}
+\end{equation}
+where $A(t)$ counts the spikes arriving at step $t$. If a fraction $\rho$ of the
+input spikes are ones, then $\mathbb{E}[\tilde{W}] = \rho W$: the work of a layer
+is a property of its input, and \eqref{eq:1-work} is the value it takes when every
+spike is one.
+
+The state is the set of membrane potentials that must survive from one step to
+the next. By the first property of Section~\ref{sec:1-neuron} that set is the
+whole of what a layer remembers, and its size is
+\begin{equation}
+M = \max_{\ell}\; \Cout^{(\ell)} D_o^{(\ell)} H_o^{(\ell)} W_o^{(\ell)} ,
+\label{eq:1-state}
+\end{equation}
+the neuron count of the largest layer. It does not grow with $T$: the same
+potentials are carried through every step, and each step overwrites them.
+
+The chain is the quantity that does not shrink. A step has to accumulate its
+fan-in before it can compare the result with $V_{th}$, and the reset of
+\eqref{eq:1-reset} makes the next step depend on that comparison, so the steps of
+a layer form a chain of length $T$ and the chain of the network is
+\begin{equation}
+P = T \sum_{\ell=1}^{N_{\mathrm{lay}}} d_\ell ,
+\label{eq:1-path}
+\end{equation}
+where $d_\ell$ is the depth of one step of layer $\ell$: the fan-in accumulation
+of \eqref{eq:1-conv} followed by the comparison of \eqref{eq:1-spike}. The factor
+$T$ multiplies rather than adds because the steps are chained rather than merely
+repeated; step $t+1$ cannot update its membrane before step $t$ has produced its
+spikes.
+
+The three quantities depend on $T$ differently, and the difference carries the
+rest of the argument. $M$ does not depend on it at all, while $W$ and $P$ both
+grow linearly with it, $W$ because $T$ more steps are executed and $P$ because
+$T$ more steps are chained. Sparsity separates them further: it reduces
+$\tilde{W}$ and leaves $P$ untouched, because a step in which no spike arrives is
+still a step. The potential of \eqref{eq:1-membrane} decays by $1/\tau_m$ in it
+and the comparison of \eqref{eq:1-spike} is still made, so an empty step changes
+the state and cannot be dropped without changing the answer.
+
+Nothing in the definitions so far asks whether all $T$ steps are needed. The
+output is defined by \eqref{eq:1-count} over the whole interval, so the cost of a
+layer is fixed when $T$ is chosen and not when the input arrives. Yet the second
+property of Section~\ref{sec:1-neuron} says that the state at step $t$ is a
+complete description of everything the network has computed up to that step, and
+the question whether the output after $t$ steps is the intended one is therefore
+well posed at every $t$. The sequential model does not ask it; it evaluates the
+remaining steps as if the answer could not change. Whether a partial output is
+sufficient is a property of the trained network and not of these definitions,
+which is why the question has to be settled outside them.
+
+What the sequential model costs is then a chain of $T$ stages that no reordering
+of the loops removes, and the state of the largest layer, which no step reduces.
+What it does not do is ask, at any point along that chain, whether the answer is
+already the one that would be reported.

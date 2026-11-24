@@ -1,0 +1,42 @@
+# --- LaTeX build products -------------------------------------------------
+*.aux
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.synctex(busy)
+*.bbl
+*.blg
+*.nav
+*.snm
+*.vrb
+*.xdv
+docs/architecture/main.pdf
+
+# --- scratch ---------------------------------------------------------------
+tmp_*.py
+/01-fundamentals.tex
+
+# --- reference corpora and inputs kept out of the repository ---------------
+/Fewshot/
+/XiangShan-Design-Doc/
+/FireFly-v2/
+/systolic-array/
+/Tutorial/
+/tools/
+/docs/source/
+/docs/firefly-v2/
+
+# figures of the separate design document; only the report figures are tracked
+/figures/*
+!/figures/3DCNN-Architecture.pdf
+!/figures/3DCNN-Architecture.drawio
+
+# papers and extracted text at the repository root
+/*.pdf
+/FireFly-*.txt
+/firefly_*.html

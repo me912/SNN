@@ -1,0 +1,8 @@
+* text=auto
+
+*.tex   text diff=tex
+*.md    text
+*.drawio text
+*.pdf   binary
+*.png   binary
+*.jpg   binary

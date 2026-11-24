@@ -1,0 +1,30 @@
+%% =========================================================================
+%% main.tex -- build entry point for the architecture report.
+%%
+%% Build (from this directory):
+%%   latexmk -pdf -interaction=nonstopmode main.tex
+%%
+%% The section files are fragments: they carry \section but no \documentclass,
+%% so they cannot be compiled on their own. Always build this file.
+%%
+%% Layout follows the FireFly papers (IEEEtran, journal, two columns). The
+%% document body deliberately skips abstract, introduction and related work:
+%% it starts at the computation model, as agreed for this report.
+%% =========================================================================
+\documentclass[journal]{IEEEtran}
+
+\input{preamble-ieee}
+
+\begin{document}
+
+\title{A Spiking Neural Network Accelerator With\\[2pt]
+Three-Dimensional Convolution and\\[2pt]
+Timestep-Level Early Exit}
+
+\author{Minh Nguyen}
+
+\maketitle
+
+\input{01-fundamentals}
+
+\end{document}
