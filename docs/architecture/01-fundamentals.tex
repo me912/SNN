@@ -174,8 +174,6 @@ D_o = \left\lfloor \frac{D_i + 2P_d - K_d}{S_d} \right\rfloor + 1 ,
 \label{eq:1-dout}
 \end{equation}
 and likewise for $H_o$ and $W_o$ with the parameters of the other two axes.
-A two-dimensional convolution is the case $D_i=K_d=1$, where the depth axis
-holds a single plane and the kernel a single tap along it.
 Figure~\ref{fig:1-pipeline} shows one such layer inside a network: every layer
 holds $T$ volumes of $C\times D\times H\times W$ spikes, the window of
 \eqref{eq:1-conv} spans $K_d\times K_h\times K_w$ positions inside each of them,
