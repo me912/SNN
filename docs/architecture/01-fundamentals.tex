@@ -176,10 +176,12 @@ D_o = \left\lfloor \frac{D_i + 2P_d - K_d}{S_d} \right\rfloor + 1 ,
 \label{eq:1-dout}
 \end{equation}
 and likewise for $H_o$ and $W_o$ with the parameters of the other two axes.
-A stride of one moves the window by one plane, so consecutive windows overlap
-and, with a padding chosen to match, the output keeps the extent of the input;
-a stride of $S_d$ moves the window by $S_d$ planes and leaves $S_d$ times fewer
-positions, which is how a volume loses depth without a pooling layer.
+Padding and stride enter \eqref{eq:1-dout} in different places. Padding widens
+the volume by $P_d$ zero planes at each end, which lets the window sit on the
+border positions; with $P_d=(K_d-1)/2$, as in Figure~\ref{fig:1-pipeline}, and
+unit stride, the output keeps the extent of the input. Stride is the distance
+between two consecutive placements: $S_d=2$ moves the window two planes at a
+time, so one position in $S_d$ is computed and the axis shrinks by that factor.
 Figure~\ref{fig:1-pipeline} shows one such layer inside a network: every layer
 holds $T$ volumes of $C\times D\times H\times W$ spikes, the window of
 \eqref{eq:1-conv} spans $K_d\times K_h\times K_w$ positions inside each of them,
