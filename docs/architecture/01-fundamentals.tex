@@ -74,7 +74,7 @@ sums its input over time, which is the integrate-and-fire (IF) model.
 The output of the step is a comparison, and the potential is rewritten at the
 same time:
 \begin{equation}
-s_i[t+1] =
+s_i[t] =
 \begin{cases}
 1, & v_i[t] \geq V_{th}, \\
 0, & v_i[t] < V_{th},
@@ -82,7 +82,7 @@ s_i[t+1] =
 \label{eq:1-spike}
 \end{equation}
 \begin{equation}
-u_i[t+1] = v_i[t] - s_i[t+1]\,V_{th} ,
+u_i[t+1] = v_i[t] - s_i[t]\,V_{th} ,
 \label{eq:1-reset}
 \end{equation}
 where $V_{th}$ is the firing threshold. What the neuron sends is this comparison
@@ -127,8 +127,9 @@ order, since each step consumes the state left by the previous one.
 \figplaceholderwide{../../figures/3DCNN-Architecture.pdf}{A three-dimensional
 SCNN pipeline over $T=8$ time steps, drawn left to right on the lower row and
 right to left on the upper one. A layer holds one spike volume of size
-$C\times D\times H\times W$ per time step; the input here is
-$1\times3\times24\times24$. Each $3$-D convolutional layer applies a
+$C\times D\times H\times W$ per time step, so the $T$ volumes of a tensor are
+stacked along its axis; the input here is $1\times3\times24\times24$. Each
+$3$-D convolutional layer applies a
 $7\times7\times7$ kernel at unit stride with same padding, which preserves $D$,
 $H$ and $W$ and changes only the channel count, from $1$ to $32$, $64$ and
 $128$; a $2\times2$ pooling then halves the map, and global average pooling with
@@ -147,20 +148,21 @@ where a spike sits relative to its neighbours.
 
 With the volumes in hand, the input current of the neuron at output channel
 $\cout$ and position $(d,h,w)$ is the weighted sum of the spikes inside its
-window,
+window, plus the bias of that channel,
 \begin{equation}
 \begin{split}
 i_{\cout}(d,h,w,t) &= \sum_{\cin}\sum_{\mathbf{k}\in\mathcal{K}}
 w_{\cout,\cin,\mathbf{k}}\\
 &\quad\times s(t,\cin,\; dS_d-P_d+k_d,\\
-&\hspace{2.8em} hS_h-P_h+k_h,\; wS_w-P_w+k_w),
+&\hspace{2.8em} hS_h-P_h+k_h,\; wS_w-P_w+k_w) + b_{\cout},
 \end{split}
 \label{eq:1-conv}
 \end{equation}
 where $\mathcal{K}=\{0,\dots,K_d-1\}\times\{0,\dots,K_h-1\}\times\{0,\dots,K_w-1\}$
 is the set of kernel positions and $\mathbf{k}=(k_d,k_h,k_w)$ is one of them;
-$S_d,S_h,S_w$ are the strides and $P_d,P_h,P_w$ the paddings; and a position
-that falls outside the input volume contributes nothing.
+$S_d,S_h,S_w$ are the strides, $P_d,P_h,P_w$ the paddings and $b_{\cout}$ the
+bias of the output channel; and a position that falls outside the input volume
+contributes nothing.
 Equation~\eqref{eq:1-conv} is the same three-dimensional convolution as in a
 non-spiking network; what singles out the spiking case is that the operand $s$
 is binary, so every term is either the weight itself or zero, and the sum is a
@@ -191,10 +193,10 @@ Two properties follow from the weight sharing. The number of parameters of a
 layer is $\Cout \Cin K_d K_h K_w$ --- one weight for each combination of output
 channel, input channel and kernel position --- independent of the size of the
 volume and of the number of time steps, so a layer costs the same to store
-whether it runs for $T=4$ or $T=64$ steps. And a spike affects only the
-$K_d \times K_h \times K_w$ positions of the output volume that contain it in
-their window, and only at the time step at which it occurs, so the layer is
-local in both space and time.
+whether it runs for $T=4$ or $T=64$ steps. And a spike is local in space and
+time but not in channel: it reaches every output channel, while the positions
+it reaches are only the $K_d \times K_h \times K_w$ whose window covers it, and
+only at the time step at which it occurs.
 
 In total, one pass over a layer performs
 \begin{equation}
@@ -225,7 +227,7 @@ loop bodies.
 \algrenewcommand\algorithmicindent{1.1em}
 \begin{algorithmic}[1]
 \Require $S(T,\Cin,D_i,H_i,W_i)$, $W(\Cout,\Cin,K_d,K_h,K_w)$
-\Statex \hspace{2.4em}$b(\Cout)$, $V_{th}$, $U(\Cout,D_o,H_o,W_o)$
+\Statex \hspace{2.4em}$b(\Cout)$, $V_{th}$, $\tau_m$, $U(\Cout,D_o,H_o,W_o)$
 \Ensure $O(T,\Cout,D_o,H_o,W_o)$ and the updated $U$
 \For{$t \gets 0$ \textbf{to} $T-1$}
   \For{each $(\cout,d,h,w)$ of the output volume}
@@ -266,17 +268,20 @@ W = \sum_{\ell=1}^{N_{\mathrm{lay}}} N_{\mathrm{syn}}^{(\ell)} ,
 \end{equation}
 where the superscript indexes the layer. This is a bound and not a count,
 because a term of \eqref{eq:1-conv} contributes the weight only when the spike is
-one: what a step actually adds is proportional to the number of spikes that enter
-it, and each of those spikes costs one weight addition for every output channel
-and kernel position it can reach,
+one. For a single layer, what a step actually adds is bounded by the number of
+spikes that enter it: a spike costs one weight addition for every output channel
+and every position whose window covers it, and there are at most
+$K_d K_h K_w$ such positions, fewer at the border or where the stride skips
+them,
 \begin{equation}
-\tilde{W}(t) = \Cout K_d K_h K_w \, A(t) ,
+\tilde{W}(t) \le \Cout K_d K_h K_w \, A(t) ,
 \label{eq:1-workt}
 \end{equation}
-where $A(t)$ counts the spikes arriving at step $t$. If a fraction $\rho$ of the
-input spikes are ones, then $\mathbb{E}[\tilde{W}] = \rho W$: the work of a layer
-is a property of its input, and \eqref{eq:1-work} is the value it takes when every
-spike is one.
+where $A(t)$ counts the spikes arriving at that layer at step $t$. Summing over
+the $T$ steps and the $N_{\mathrm{lay}}$ layers gives the work actually
+performed, $\tilde{W}_{\mathrm{net}}$; if a fraction $\rho$ of the spikes are
+ones then $\mathbb{E}[\tilde{W}_{\mathrm{net}}] \approx \rho W$, and
+\eqref{eq:1-work} is the value it takes when every spike is one.
 
 The state is the set of membrane potentials that must survive from one step to
 the next. By the first property of Section~\ref{sec:1-neuron} that set is the
@@ -286,10 +291,14 @@ M = \max_{\ell}\; \Cout^{(\ell)} D_o^{(\ell)} H_o^{(\ell)} W_o^{(\ell)} ,
 \label{eq:1-state}
 \end{equation}
 the neuron count of the largest layer. It does not grow with $T$: the same
-potentials are carried through every step, and each step overwrites them.
+potentials are carried through every step, and each step overwrites them. This
+counts membrane potentials only, and it assumes that one layer is evaluated at a
+time. The spike volumes are a second kind of state: a layer keeps its output
+spikes for all $T$ steps so that the next layer can read them, and that storage
+does grow with $T$.
 
-The chain is the quantity that does not shrink. A step has to accumulate its
-fan-in before it can compare the result with $V_{th}$, and the reset of
+The chain is the quantity that the loops cannot shorten. A step has to accumulate
+its fan-in before it can compare the result with $V_{th}$, and the reset of
 \eqref{eq:1-reset} makes the next step depend on that comparison, so the steps of
 a layer form a chain of length $T$ and the chain of the network is
 \begin{equation}
@@ -300,7 +309,9 @@ where $d_\ell$ is the depth of one step of layer $\ell$: the fan-in accumulation
 of \eqref{eq:1-conv} followed by the comparison of \eqref{eq:1-spike}. The factor
 $T$ multiplies rather than adds because the steps are chained rather than merely
 repeated; step $t+1$ cannot update its membrane before step $t$ has produced its
-spikes.
+spikes. The sum assumes that a layer is evaluated to completion before the next
+one starts; pipelining the layers shortens that sum, but not the factor $T$,
+which belongs to each layer whatever the schedule.
 
 The three quantities depend on $T$ differently, and the difference carries the
 rest of the argument. $M$ does not depend on it at all, while $W$ and $P$ both
@@ -312,8 +323,9 @@ and the comparison of \eqref{eq:1-spike} is still made, so an empty step changes
 the state and cannot be dropped without changing the answer.
 
 Nothing in the definitions so far asks whether all $T$ steps are needed. The
-output is defined by \eqref{eq:1-count} over the whole interval, so the cost of a
-layer is fixed when $T$ is chosen and not when the input arrives. Yet the second
+output is defined by \eqref{eq:1-conv} and \eqref{eq:1-spike} over the whole
+interval, so the cost of a layer is fixed when $T$ is chosen and not when the
+input arrives. Yet the first
 property of Section~\ref{sec:1-neuron} says that the state at step $t$ is a
 complete description of everything the network has computed up to that step, and
 the question whether the output after $t$ steps is the intended one is therefore
