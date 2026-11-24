@@ -10,8 +10,8 @@
 %% the IP.
 %%
 %% Notation: channel counts are \Cin / \Cout, channel indices \cin / \cout.
-%% Depth is D with subscripts i/o; dilation is \Delta so that it does not
-%% collide with the depth axis.
+%% Depth is D with subscripts i/o; the window is described by kernel size K,
+%% stride S and padding P, which is the configuration the report targets.
 %%
 %% Build through main.tex (IEEEtran, two columns):
 %%   latexmk -pdf -interaction=nonstopmode main.tex
@@ -152,16 +152,15 @@ window,
 \begin{split}
 i_{\cout}(d,h,w,t) &= \sum_{\cin}\sum_{\mathbf{k}\in\mathcal{K}}
 w_{\cout,\cin,\mathbf{k}}\\
-&\quad\times s(t,\cin,\; dS_d-P_d+k_d\Delta_d,\\
-&\hspace{2.8em} hS_h-P_h+k_h\Delta_h,\; wS_w-P_w+k_w\Delta_w),
+&\quad\times s(t,\cin,\; dS_d-P_d+k_d,\\
+&\hspace{2.8em} hS_h-P_h+k_h,\; wS_w-P_w+k_w),
 \end{split}
 \label{eq:1-conv}
 \end{equation}
-where $\mathcal{K}=\{1,\dots,K_d\}\times\{1,\dots,K_h\}\times\{1,\dots,K_w\}$
+where $\mathcal{K}=\{0,\dots,K_d-1\}\times\{0,\dots,K_h-1\}\times\{0,\dots,K_w-1\}$
 is the set of kernel positions and $\mathbf{k}=(k_d,k_h,k_w)$ is one of them;
-$S_d,S_h,S_w$ are the strides, $P_d,P_h,P_w$ the paddings and
-$\Delta_d,\Delta_h,\Delta_w$ the dilations of the window; and a position that
-falls outside the input volume contributes nothing.
+$S_d,S_h,S_w$ are the strides and $P_d,P_h,P_w$ the paddings; and a position
+that falls outside the input volume contributes nothing.
 Equation~\eqref{eq:1-conv} is the same three-dimensional convolution as in a
 non-spiking network; what singles out the spiking case is that the operand $s$
 is binary, so every term is either the weight itself or zero, and the sum is a
@@ -171,7 +170,7 @@ The window visits every output position of the volume, every input channel and
 every time step, which fixes the extent of the output volume along each
 geometric axis,
 \begin{equation}
-D_o = \left\lfloor \frac{D_i + 2P_d - \Delta_d(K_d-1) - 1}{S_d} \right\rfloor + 1 ,
+D_o = \left\lfloor \frac{D_i + 2P_d - K_d}{S_d} \right\rfloor + 1 ,
 \label{eq:1-dout}
 \end{equation}
 and likewise for $H_o$ and $W_o$ with the parameters of the other two axes.
@@ -227,8 +226,8 @@ loop bodies.
     \State $i \gets b[\cout]$
     \For{$\cin \gets 1$ \textbf{to} $\Cin$}
       \For{$(k_d,k_h,k_w)\in\mathcal{K}$}
-        \State $d' \gets dS_d-P_d+k_d\Delta_d$
-        \State $h' \gets hS_h-P_h+k_h\Delta_h$;\quad $w' \gets wS_w-P_w+k_w\Delta_w$
+        \State $d' \gets dS_d-P_d+k_d$
+        \State $h' \gets hS_h-P_h+k_h$;\quad $w' \gets wS_w-P_w+k_w$
         \If{$(d',h',w')$ lies inside the input volume}
           \State $i \gets i + W[\cout,\cin,k_d,k_h,k_w]\,S[t,\cin,d',h',w']$
         \EndIf
