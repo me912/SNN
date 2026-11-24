@@ -166,14 +166,20 @@ non-spiking network; what singles out the spiking case is that the operand $s$
 is binary, so every term is either the weight itself or zero, and the sum is a
 weighted count of the spikes that fall inside the window.
 
-The window visits every output position of the volume, every input channel and
-every time step, which fixes the extent of the output volume along each
-geometric axis,
+To evaluate one output neuron is to place the window once: the sum of
+\eqref{eq:1-conv} is formed at one position $(d,h,w)$, for one output channel
+and one time step. The layer repeats that placement at every output position,
+so the number of positions along an axis is the number of distinct places at
+which the window fits,
 \begin{equation}
 D_o = \left\lfloor \frac{D_i + 2P_d - K_d}{S_d} \right\rfloor + 1 ,
 \label{eq:1-dout}
 \end{equation}
 and likewise for $H_o$ and $W_o$ with the parameters of the other two axes.
+A stride of one moves the window by one plane, so consecutive windows overlap
+and, with a padding chosen to match, the output keeps the extent of the input;
+a stride of $S_d$ moves the window by $S_d$ planes and leaves $S_d$ times fewer
+positions, which is how a volume loses depth without a pooling layer.
 Figure~\ref{fig:1-pipeline} shows one such layer inside a network: every layer
 holds $T$ volumes of $C\times D\times H\times W$ spikes, the window of
 \eqref{eq:1-conv} spans $K_d\times K_h\times K_w$ positions inside each of them,
